@@ -31,7 +31,7 @@ class SkinDTO(BaseModel):
     skin_type: ESkinType
     exterior: ESkinExterior
     has_trade_lock: bool
-    trade_lock: Optional[datetime]  # Adjust according to your needs
+    trade_lock: Optional[datetime] 
     user_id: int
 
 

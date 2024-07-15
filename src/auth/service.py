@@ -1,16 +1,21 @@
 import logging
-from sqlalchemy import insert
+
+from sqlalchemy import insert, select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import retry, wait_fixed, stop_after_attempt, retry_if_exception_type
 import httpx
 from fastapi import HTTPException
 
 from auth.models import AuthData
-from auth.schemas import AuthDataCreateDTO
+from auth.schemas import AuthDataCreateDTO, AuthDataResponseDTO
 
 logger = logging.getLogger(__name__)
 
 class SteamAuthService:
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
 
     async def save_auth_data(self, auth_data: AuthDataCreateDTO):
         try:
@@ -25,6 +30,45 @@ class SteamAuthService:
         except SQLAlchemyError as e:
             logger.error(f"Database error: {e}")
             raise HTTPException(status_code=500, detail="Internal Server Error")
+        
+    async def filter_auth_data(self, domain_id: int = None, username: str = None, steam_id: str = None, user_ip: str = None, limit: int = 10, offset: int = 0):
+        try:
+            query = select(AuthData)
+
+            if domain_id:
+                query = query.where(AuthData.domain_id == domain_id)
+            if username:
+                query = query.where(AuthData.username == username)
+            if steam_id:
+                query = query.where(AuthData.steam_id == steam_id)
+            if user_ip:
+                query = query.where(AuthData.user_ip == user_ip)
+            
+            query = query.limit(limit).offset(offset)
+
+            result = await self.session.execute(query)
+
+            result_orm = result.scalars().all()
+
+           
+            # Build the response DTOs
+            result_dto = [
+                AuthDataResponseDTO(
+                    id=row.id,
+                    user_ip=row.user_ip,
+                    created_at=row.created_at,
+                    steam_id=row.steam_id,
+                    username=row.username,
+                    domain_id=row.domain_id,
+                )
+                for row in result_orm
+            ]
+
+            return result_dto
+        except SQLAlchemyError as e:
+            logger.error(f"Database error: {e}")
+            raise HTTPException(status_code=500, detail="Internal Server Error")
+    
 
     @staticmethod
     def create_auth_url(redirect_uri):

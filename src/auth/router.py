@@ -32,7 +32,7 @@ async def steam_callback(request: Request, session: AsyncSession = Depends(get_a
     player = await SteamAuthService.get_steam_user_data(steam_id, settings.STEAM_API_KEY)
     username = player["personaname"]
 
-    auth_data = AuthDataCreateDTO(user_ip=user_ip, steam_id=steam_id, username=username, domain_id=1)
+    auth_data = AuthDataCreateDTO(user_ip=user_ip, steam_id=steam_id, username=username, domain_id=1) # CSMONEY IS DOMAIN "1"
 
     await SteamAuthService(session).save_auth_data(auth_data)
 
