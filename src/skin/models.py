@@ -2,7 +2,7 @@ from database import Base
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy import ForeignKey, Integer, String, Enum, Float, JSON, Boolean, DateTime, TIMESTAMP
 from skin.enums import ESkinExterior, ESkinPhase, ESkinRarity, ESkinType
-
+from trade.models import Trade # Without import model not working
 
 class Skin(Base):
     __tablename__ = 'skin'
@@ -52,5 +52,11 @@ class Skin(Base):
 
     has_trade_lock: Mapped[bool] = mapped_column(Boolean)
     trade_lock: Mapped[TIMESTAMP] = mapped_column(DateTime)
+
+    trade_id: Mapped[int] = mapped_column(
+        ForeignKey("trade.id", ondelete="CASCADE")
+    )
+
+    trade = relationship("Trade", back_populates="skins")
 
     
