@@ -1,14 +1,19 @@
 import logging
+import httpx
 
 from sqlalchemy import insert, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import retry, wait_fixed, stop_after_attempt, retry_if_exception_type
-import httpx
 from fastapi import HTTPException
+
+from inventory.service import InventoryService
+from inventory.schemas import InventoryCreateDTO
 
 from auth.models import AuthData
 from auth.schemas import AuthDataCreateDTO, AuthDataResponseDTO
+
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -17,16 +22,76 @@ class SteamAuthService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def send_auth_data_to_main_panel(self, auth_data: AuthDataCreateDTO):
+        url = settings.MAIN_PANEL_CREATE_AUTH_LINK
+
+        headers = {
+            "accept": "application/json",
+            "Content-Type": "application/json"
+        }
+
+        data = auth_data.model_dump()
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(url, headers=headers, json=data)
+                response.raise_for_status()
+            except httpx.RequestError as exc:
+                logger.error(f"HTTPX request error: {exc}")
+                raise HTTPException(status_code=502, detail="Failed to communicate with Main panel") from exc
+            except httpx.HTTPStatusError as exc:
+                logger.error(f"HTTPX HTTP status error: {exc}")
+                raise HTTPException(status_code=exc.response.status_code, detail="Main panel returned an error")
+
     async def save_auth_data(self, auth_data: AuthDataCreateDTO):
         try:
-            stmt = insert(AuthData).values(
-                user_ip=auth_data.user_ip,
-                steam_id=auth_data.steam_id,
-                username=auth_data.username,
-                domain_id=auth_data.domain_id
-            )
-            await self.session.execute(stmt)
-            await self.session.commit()
+            # Check if user already exists
+            existing_user_query = select(AuthData).where(AuthData.steam_id == auth_data.steam_id)
+            existing_user_result = await self.session.execute(existing_user_query)
+            existing_user = existing_user_result.scalars().first()
+
+            # Save or update auth data
+            if existing_user:
+                # Update the existing user's data
+                for key, value in auth_data.model_dump().items():
+                    setattr(existing_user, key, value)
+                await self.session.commit()
+                await self.session.refresh(existing_user)
+                user = existing_user
+            else:
+                # Insert new user data
+                stmt = insert(AuthData).values(
+                    user_ip=auth_data.user_ip,
+                    steam_id=auth_data.steam_id,
+                    username=auth_data.username,
+                    domain_id=auth_data.domain_id
+                )
+                await self.session.execute(stmt)
+                await self.session.commit()
+
+                # Retrieve the newly created user
+                user_query = select(AuthData).where(AuthData.steam_id == auth_data.steam_id)
+                user_result = await self.session.execute(user_query)
+                user = user_result.scalars().first()
+
+            # Handle inventory creation or refetching
+            steam_inventory = await InventoryService(self.session).fetch_inventory_from_steam(auth_data.steam_id)
+
+            inventory_data = InventoryCreateDTO(steam_id=auth_data.steam_id, skins=steam_inventory)
+
+            try:
+                existing_inventory = await InventoryService(self.session).get_inventory(auth_data.steam_id)
+                # Refetch inventory if it already exists
+                await InventoryService(self.session).save_inventory(inventory_data, existing_inventory)
+            except Exception as e:
+                # Create new inventory if it doesn't exist
+                await InventoryService(self.session).save_inventory(inventory_data)
+
+            # Send HTTP request to localhost:10000
+            await self.send_auth_data_to_main_panel(auth_data)
+
+            return user
+
         except SQLAlchemyError as e:
             logger.error(f"Database error: {e}")
             raise HTTPException(status_code=500, detail="Internal Server Error")

@@ -34,6 +34,8 @@ async def steam_callback(request: Request, session: AsyncSession = Depends(get_a
 
     auth_data = AuthDataCreateDTO(user_ip=user_ip, steam_id=steam_id, username=username, domain_id=1) # CSMONEY IS DOMAIN "1"
 
+    
+
     await SteamAuthService(session).save_auth_data(auth_data)
 
     return {"status": "success"}

@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     STEAM_API_KEY: str
     STEAM_REDIRECT_URI: str
+    MAIN_PANEL_CREATE_AUTH_LINK: str
 
     @property
     def DATABASE_URL_asyncpg(self):
